@@ -1,0 +1,6 @@
+{
+  "name": "AI Studio Build",
+  "description": "Interactive Google AI Studio Build development environment replica with real Gemini AI architect, interactive live app preview emulator, GitHub sync, multi-model quotas, and APK/ZIP export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
