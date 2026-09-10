@@ -2,6 +2,7 @@ package com.example
 
 import android.app.Application
 import android.util.Log
+import com.example.data.repository.LocalSettingsStore
 
 /**
  * Application class.
@@ -12,6 +13,7 @@ import android.util.Log
 class StudioApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        LocalSettingsStore.init(this)
         Log.d("StudioApplication", "Application started. Firebase will be initialized by Google Services plugin if google-services.json is present.")
     }
 }

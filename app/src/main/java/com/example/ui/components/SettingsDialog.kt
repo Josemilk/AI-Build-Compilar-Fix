@@ -53,6 +53,11 @@ fun SettingsDialog(
     var anthropicKeyInput by remember { mutableStateOf(uiState.anthropicApiKey) }
     var deepseekKeyInput by remember { mutableStateOf(uiState.deepseekApiKey) }
     var customEndpointInput by remember { mutableStateOf(uiState.customLlmEndpoint) }
+    LaunchedEffect(uiState.customApiKey) { apiKeyInput = uiState.customApiKey }
+    LaunchedEffect(uiState.openaiApiKey) { openaiKeyInput = uiState.openaiApiKey }
+    LaunchedEffect(uiState.anthropicApiKey) { anthropicKeyInput = uiState.anthropicApiKey }
+    LaunchedEffect(uiState.deepseekApiKey) { deepseekKeyInput = uiState.deepseekApiKey }
+    LaunchedEffect(uiState.customLlmEndpoint) { customEndpointInput = uiState.customLlmEndpoint }
 
     // API Manager Form State
     var isAddingKeyFormOpen by remember { mutableStateOf(false) }
@@ -109,7 +114,29 @@ fun SettingsDialog(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 // Inner Tabs
-                ScrollableTabRow(
+                Scrollable
+            // Global settings feedback (API key save, Firestore, etc.)
+            val globalFeedback = uiState.settingsFeedbackMessage
+            if (!globalFeedback.isNullOrBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = GeminiGreen.copy(alpha = 0.12f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, GeminiGreen.copy(alpha = 0.45f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                ) {
+                    Text(
+                        text = globalFeedback,
+                        modifier = Modifier.padding(12.dp),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = GeminiGreen
+                    )
+                }
+            }
+
+            TabRow(
                     selectedTabIndex = selectedTab,
                     containerColor = StudioLightSurfaceVariant,
                     contentColor = GeminiBlue,
@@ -180,7 +207,29 @@ fun SettingsDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                when (selectedTab) {
+                
+                val feedback = uiState.settingsFeedbackMessage ?: uiState.firestoreSyncSuccessMessage
+                if (!feedback.isNullOrBlank()) {
+                    Surface(
+                        color = if (feedback.startsWith("❌") || feedback.contains("Error", ignoreCase = true))
+                            Color(0xFFFFEBEE) else Color(0xFFE8F5E9),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                    ) {
+                        Text(
+                            text = feedback,
+                            modifier = Modifier.padding(10.dp),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (feedback.startsWith("❌") || feedback.contains("Error", ignoreCase = true))
+                                Color(0xFFC62828) else Color(0xFF2E7D32)
+                        )
+                    }
+                }
+
+when (selectedTab) {
                     0 -> {
                         // Firebase & Firestore Sync Section
                         LazyColumn(
@@ -1091,11 +1140,28 @@ fun SettingsDialog(
                                     unfocusedTextColor = StudioLightTextPrimary
                                 )
                             )
-                            Button(
-                                onClick = { onSaveApiKey(apiKeyInput) },
-                                colors = ButtonDefaults.buttonColors(containerColor = GeminiBlue),
-                                modifier = Modifier.align(Alignment.End)
+                            if (uiState.settingsFeedbackMessage != null &&
+                                (uiState.settingsFeedbackMessage.contains("Clave") ||
+                                    uiState.settingsFeedbackMessage.contains("API key") ||
+                                    uiState.settingsFeedbackMessage.contains("guardada"))
                             ) {
+                                Text(
+                                    text = uiState.settingsFeedbackMessage,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = GeminiGreen
+                                )
+                            }
+                            Button(
+                                onClick = { onSaveApiKey(apiKeyInput.trim()) },
+                                enabled = apiKeyInput.isNotBlank(),
+                                colors = ButtonDefaults.buttonColors(containerColor = GeminiBlue),
+                                modifier = Modifier
+                                    .align(Alignment.End)
+                                    .testTag("save_gemini_api_key")
+                            ) {
+                                Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
                                 Text("Guardar Clave", fontWeight = FontWeight.Bold)
                             }
                         }

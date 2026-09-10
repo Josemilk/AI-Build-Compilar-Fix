@@ -52,10 +52,12 @@ fun ChatPanel(
     onQuickPromptSelected: (String) -> Unit,
     onViewInEmulator: () -> Unit,
     onAttachFile: (AttachedFile) -> Unit = {},
+    onClearChat: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     var promptInput by remember { mutableStateOf("") }
+    var chatMenuExpanded by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
@@ -102,6 +104,55 @@ fun ChatPanel(
             .fillMaxSize()
             .background(StudioLightBackground)
     ) {
+
+        // Chat toolbar: model + overflow menu (clear chat)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Chat IA",
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 14.sp,
+                    color = StudioLightTextPrimary
+                )
+                Text(
+                    text = uiState.activeModel.name,
+                    fontSize = 11.sp,
+                    color = StudioLightTextSecondary
+                )
+            }
+            Box {
+                IconButton(onClick = { chatMenuExpanded = true }) {
+                    Icon(
+                        Icons.Default.MoreVert,
+                        contentDescription = "Menú del chat",
+                        tint = StudioLightTextPrimary
+                    )
+                }
+                DropdownMenu(
+                    expanded = chatMenuExpanded,
+                    onDismissRequest = { chatMenuExpanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Vaciar chat") },
+                        onClick = {
+                            chatMenuExpanded = false
+                            onClearChat()
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.Delete, contentDescription = null)
+                        }
+                    )
+                }
+            }
+        }
+        HorizontalDivider(color = StudioLightBorder.copy(alpha = 0.6f))
+
         // Componente de interfaz de estado sobre la interfaz de chat en tiempo real
         AnimatedVisibility(
             visible = uiState.isAgentGenerating || uiState.agentProcessingState.isActive,

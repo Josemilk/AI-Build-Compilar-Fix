@@ -7,6 +7,7 @@ import com.example.data.repository.FirebaseStudioRepository
 import com.example.data.repository.GeminiRepository
 import com.example.data.repository.GitHubRepository
 import com.example.data.repository.ProjectRepository
+import com.example.data.repository.LocalSettingsStore
 import com.example.data.repository.CloudBuildRepository
 import com.example.data.repository.ProjectZipImporter
 import com.example.data.repository.UploadEvent
@@ -66,6 +67,7 @@ data class StudioUiState(
     val isFirebaseLoading: Boolean = false,
     val firebaseAuthError: String? = null,
     val isFirestoreSyncing: Boolean = false,
+    val settingsFeedbackMessage: String? = null,
     val firestoreSyncSuccessMessage: String? = null,
     val isLightTheme: Boolean = true,
     // Console logs are only populated with real events (no fake emulator output)
@@ -98,6 +100,32 @@ class StudioViewModel(
     val uiState: StateFlow<StudioUiState> = _uiState.asStateFlow()
 
     init {
+        loadLocalSettings()
+    }
+
+    private fun loadLocalSettings() {
+        val gemini = LocalSettingsStore.getGeminiApiKey()
+        val openai = LocalSettingsStore.getOpenAiKey()
+        val anthropic = LocalSettingsStore.getAnthropicKey()
+        val deepseek = LocalSettingsStore.getDeepseekKey()
+        val endpoint = LocalSettingsStore.getCustomEndpoint()
+        val modelId = LocalSettingsStore.getSelectedModelId()
+        val provider = LocalSettingsStore.getSelectedProvider()
+        _uiState.update { st ->
+            st.copy(
+                customApiKey = gemini.ifBlank { st.customApiKey },
+                openaiApiKey = openai.ifBlank { st.openaiApiKey },
+                anthropicApiKey = anthropic.ifBlank { st.anthropicApiKey },
+                deepseekApiKey = deepseek.ifBlank { st.deepseekApiKey },
+                customLlmEndpoint = endpoint.ifBlank { st.customLlmEndpoint },
+                selectedModelId = modelId.ifBlank { st.selectedModelId },
+                selectedLlmProvider = provider.ifBlank { st.selectedLlmProvider }
+            )
+        }
+    }
+
+
+    init {
         initWelcomeMessage()
         observeFirebaseAuth()
     }
@@ -126,11 +154,16 @@ class StudioViewModel(
     }
 
     fun selectModel(modelId: String) {
+        LocalSettingsStore.setSelectedModelId(modelId)
         _uiState.update { state ->
             state.copy(
                 selectedModelId = modelId,
-                quotaWarningMessage = null
+                quotaWarningMessage = null,
+                settingsFeedbackMessage = "Modelo seleccionado: $modelId"
             )
+        }
+        if (_uiState.value.firebaseUser != null) {
+            syncPreferencesToFirestore()
         }
     }
 
@@ -459,9 +492,18 @@ class StudioViewModel(
     }
 
     fun syncPreferencesToFirestore() {
-        val user = _uiState.value.firebaseUser ?: return
+        val user = _uiState.value.firebaseUser
+        if (user == null) {
+            _uiState.update {
+                it.copy(
+                    settingsFeedbackMessage = "Inicia sesión en Firebase para guardar en Firestore.",
+                    firebaseAuthError = "No hay sesión de Firebase activa."
+                )
+            }
+            return
+        }
         viewModelScope.launch {
-            _uiState.update { it.copy(isFirestoreSyncing = true, firestoreSyncSuccessMessage = null) }
+            _uiState.update { it.copy(isFirestoreSyncing = true, firestoreSyncSuccessMessage = null, settingsFeedbackMessage = null) }
             val prefs = UserStudioPreferences(
                 selectedModelId = _uiState.value.selectedModelId,
                 selectedLlmProvider = _uiState.value.selectedLlmProvider,
@@ -480,14 +522,16 @@ class StudioViewModel(
                 _uiState.update {
                     it.copy(
                         isFirestoreSyncing = false,
-                        firestoreSyncSuccessMessage = "Datos guardados en Firestore correctamente."
+                        firestoreSyncSuccessMessage = "Datos guardados en Firestore correctamente.",
+                        settingsFeedbackMessage = "✅ Guardado en Firestore correctamente."
                     )
                 }
             }.onFailure { err ->
                 _uiState.update {
                     it.copy(
                         isFirestoreSyncing = false,
-                        firebaseAuthError = "Error guardando en Firestore: ${err.message}"
+                        firebaseAuthError = "Error guardando en Firestore: ${err.message}",
+                        settingsFeedbackMessage = "❌ No se pudo guardar en Firestore: ${err.message}"
                     )
                 }
             }
@@ -589,15 +633,22 @@ class StudioViewModel(
         deepseekKey: String,
         customEndpoint: String
     ) {
+        LocalSettingsStore.setOpenAiKey(openaiKey.trim())
+        LocalSettingsStore.setAnthropicKey(anthropicKey.trim())
+        LocalSettingsStore.setDeepseekKey(deepseekKey.trim())
+        LocalSettingsStore.setCustomEndpoint(customEndpoint.trim())
         _uiState.update {
             it.copy(
-                openaiApiKey = openaiKey,
-                anthropicApiKey = anthropicKey,
-                deepseekApiKey = deepseekKey,
-                customLlmEndpoint = customEndpoint
+                openaiApiKey = openaiKey.trim(),
+                anthropicApiKey = anthropicKey.trim(),
+                deepseekApiKey = deepseekKey.trim(),
+                customLlmEndpoint = customEndpoint.trim(),
+                settingsFeedbackMessage = "✅ Claves externas guardadas localmente."
             )
         }
-        syncPreferencesToFirestore()
+        if (_uiState.value.firebaseUser != null) {
+            syncPreferencesToFirestore()
+        }
     }
 
     private fun saveCurrentProjectToFirestore(uid: String, prompt: String) {
@@ -725,7 +776,35 @@ class StudioViewModel(
     }
 
     fun setCustomApiKey(key: String) {
-        _uiState.update { it.copy(customApiKey = key) }
+        val trimmed = key.trim()
+        LocalSettingsStore.setGeminiApiKey(trimmed)
+        _uiState.update {
+            it.copy(
+                customApiKey = trimmed,
+                settingsFeedbackMessage = if (trimmed.isBlank())
+                    "API key vacía — pégala en el campo y pulsa Guardar."
+                else
+                    "✅ Clave Gemini guardada localmente (${trimmed.take(8)}…). Se usará en el chat."
+            )
+        }
+        // Also persist to Firestore when logged in
+        if (_uiState.value.firebaseUser != null) {
+            syncPreferencesToFirestore()
+        }
+    }
+
+    fun clearChat() {
+        _uiState.update {
+            it.copy(
+                messages = emptyList(),
+                isAgentGenerating = false,
+                agentProcessingState = AgentProcessingState()
+            )
+        }
+    }
+
+    fun clearSettingsFeedback() {
+        _uiState.update { it.copy(settingsFeedbackMessage = null, firestoreSyncSuccessMessage = null) }
     }
 
     fun toggleThinking(messageId: String) {

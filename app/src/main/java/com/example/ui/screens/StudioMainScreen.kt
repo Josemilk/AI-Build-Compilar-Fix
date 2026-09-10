@@ -108,6 +108,7 @@ fun StudioMainScreen(
                             onQuickPromptSelected = { viewModel.sendPrompt(it) },
                             onViewInEmulator = { viewModel.selectTab(StudioTab.PREVIEW) },
                             onAttachFile = { viewModel.attachFile(it) },
+                            onClearChat = { viewModel.clearChat() },
                             modifier = Modifier.weight(0.48f)
                         )
 
@@ -140,7 +141,8 @@ fun StudioMainScreen(
                                     onRemoveAttachment = { viewModel.removeAttachedFile(it) },
                                     onQuickPromptSelected = { viewModel.sendPrompt(it) },
                                     onViewInEmulator = { viewModel.selectTab(StudioTab.PREVIEW) },
-                                    onAttachFile = { viewModel.attachFile(it) }
+                                    onAttachFile = { viewModel.attachFile(it) },
+                                    onClearChat = { viewModel.clearChat() }
                                 )
                             }
                             StudioTab.PREVIEW -> {

@@ -12,6 +12,7 @@ import com.example.data.model.ToolAction
 import com.example.data.model.ToolStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import retrofit2.HttpException
 
 data class AgentExecutionResult(
     val replyText: String,
@@ -159,7 +160,7 @@ Keep it production-grade, modern Material 3, clean and reactive.
                     )
                 ),
                 systemInstruction = GeminiContent(
-                    role = "user",
+                    role = null,
                     parts = listOf(GeminiPart(text = systemPrompt))
                 ),
                 generationConfig = GeminiGenerationConfig(
@@ -168,11 +169,49 @@ Keep it production-grade, modern Material 3, clean and reactive.
                 )
             )
 
-            val response = GeminiApiClient.service.generateContent(
-                model = activeModelId,
-                apiKey = apiKey,
-                request = request
-            )
+            val modelCandidates = resolveGeminiModelIds(activeModelId)
+            var response: com.example.data.api.GeminiApiResponse? = null
+            var usedModel = modelCandidates.first()
+            var lastError: Exception? = null
+            for (modelId in modelCandidates) {
+                try {
+                    response = GeminiApiClient.service.generateContent(
+                        model = modelId,
+                        apiKey = apiKey,
+                        request = request
+                    )
+                    usedModel = modelId
+                    break
+                } catch (e: Exception) {
+                    val detail = httpErrorMessage(e)
+                    lastError = Exception(detail)
+                    val msg = detail
+                    // Retry only on 404 / model-not-found
+                    if (msg.contains("404") || msg.contains("NOT_FOUND", ignoreCase = true) ||
+                        msg.contains("is not found", ignoreCase = true) ||
+                        msg.contains("not supported", ignoreCase = true)
+                    ) {
+                        Log.w("GeminiRepository", "Model $modelId not found ($detail), trying next…")
+                        continue
+                    }
+                    throw Exception(detail)
+                }
+            }
+            if (response == null) {
+                val hint = when {
+                    apiKey.startsWith("AQ.") ->
+                        " La clave empieza por AQ. — asegúrate de que sea una API key de Google AI Studio (suele empezar por AIza…)."
+                    else -> ""
+                }
+                return@withContext Result.failure(
+                    Exception(
+                        "Modelo no encontrado (404) para '$activeModelId'. " +
+                        "Probados: ${modelCandidates.joinToString()}. " +
+                        "Revisa la clave en Ajustes y el nombre del modelo.$hint " +
+                        "Detalle: ${lastError?.message}"
+                    )
+                )
+            }
 
             val rawText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
                 ?: "Generated Android implementation successfully."
@@ -195,13 +234,67 @@ Keep it production-grade, modern Material 3, clean and reactive.
                     toolActions = tools,
                     codeSnippets = parsedCodeSnippets,
                     tokensUsed = tokens,
-                    modelUsed = "Google Gemini ($activeModelId)"
+                    modelUsed = "Google Gemini ($usedModel)"
                 )
             )
         } catch (e: Exception) {
             Log.e("GeminiRepository", "API call failed", e)
             Result.failure(Exception("Error en Gemini API: ${e.message}"))
         }
+    }
+
+
+    /**
+     * Builds an ordered list of Gemini model IDs to try.
+     * Google AI returns 404 when the model id is wrong or unavailable for the key.
+     */
+    private fun resolveGeminiModelIds(requested: String): List<String> {
+        val normalized = requested.trim().ifBlank { "gemini-2.0-flash" }
+        val aliases = mapOf(
+            "gemini-2.5-flash-thinking" to listOf(
+                "gemini-2.0-flash-thinking-exp",
+                "gemini-2.0-flash-thinking-exp-01-21",
+                "gemini-2.0-flash",
+                "gemini-1.5-flash"
+            ),
+            "gemini-2.5-flash" to listOf(
+                "gemini-2.5-flash",
+                "gemini-2.0-flash",
+                "gemini-2.0-flash-001",
+                "gemini-1.5-flash",
+                "gemini-1.5-flash-latest"
+            ),
+            "gemini-2.0-flash" to listOf(
+                "gemini-2.0-flash",
+                "gemini-2.0-flash-001",
+                "gemini-1.5-flash",
+                "gemini-1.5-flash-latest"
+            ),
+            "gemini-1.5-pro" to listOf(
+                "gemini-1.5-pro",
+                "gemini-1.5-pro-latest",
+                "gemini-1.5-pro-002",
+                "gemini-1.5-flash"
+            ),
+            "gemini-1.5-flash" to listOf(
+                "gemini-1.5-flash",
+                "gemini-1.5-flash-latest",
+                "gemini-1.5-flash-002",
+                "gemini-2.0-flash"
+            )
+        )
+        val primary = aliases[normalized] ?: listOf(normalized, "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro")
+        // Always end with widely available fallbacks
+        val fallbacks = listOf("gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro")
+        return (primary + fallbacks).distinct()
+    }
+
+    private fun httpErrorMessage(e: Exception): String {
+        if (e is HttpException) {
+            val body = try { e.response()?.errorBody()?.string() } catch (_: Exception) { null }
+            return "HTTP ${e.code()}: ${body?.take(500) ?: e.message()}"
+        }
+        return e.message ?: e.toString()
     }
 
     private fun extractCodeSnippets(text: String): List<CodeSnippet> {
