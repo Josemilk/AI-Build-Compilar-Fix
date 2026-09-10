@@ -4,12 +4,14 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
+import retrofit2.HttpException
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import retrofit2.http.Body
+import retrofit2.http.HeaderMap
 import retrofit2.http.POST
 import retrofit2.http.Path
-import retrofit2.http.Query
+import retrofit2.http.QueryMap
 import java.util.concurrent.TimeUnit
 
 @JsonClass(generateAdapter = true)
@@ -62,7 +64,8 @@ interface GeminiApiService {
     @POST("v1beta/models/{model}:generateContent")
     suspend fun generateContent(
         @Path("model") model: String,
-        @Query("key") apiKey: String,
+        @HeaderMap headers: Map<String, String>,
+        @QueryMap queries: Map<String, String>,
         @Body request: GeminiApiRequest
     ): GeminiApiResponse
 }
@@ -72,6 +75,8 @@ object GeminiApiClient {
 
     private val logging = HttpLoggingInterceptor().apply {
         level = HttpLoggingInterceptor.Level.BASIC
+        redactHeader("x-goog-api-key")
+        redactHeader("Authorization")
     }
 
     private val okHttpClient = OkHttpClient.Builder()
@@ -88,5 +93,45 @@ object GeminiApiClient {
             .addConverterFactory(MoshiConverterFactory.create())
             .build()
             .create(GeminiApiService::class.java)
+    }
+
+    /**
+     * Auth keys from AI Studio start with "AQ." and should be sent as
+     * `x-goog-api-key` (not only `?key=`). Older AIza keys still accept the query param.
+     */
+    suspend fun generateContent(
+        model: String,
+        apiKey: String,
+        request: GeminiApiRequest
+    ): GeminiApiResponse {
+        val headerAuth = mapOf("x-goog-api-key" to apiKey)
+        return try {
+            service.generateContent(model, headerAuth, emptyMap(), request)
+        } catch (first: HttpException) {
+            val body = try { first.response()?.errorBody()?.string().orEmpty() } catch (_: Exception) { "" }
+            val authFailed = first.code() == 401 || first.code() == 403 ||
+                body.contains("ACCESS_TOKEN_TYPE_UNSUPPORTED", ignoreCase = true) ||
+                body.contains("UNAUTHENTICATED", ignoreCase = true) ||
+                body.contains("API key not valid", ignoreCase = true)
+            if (!authFailed) throw first
+            if (apiKey.startsWith("AQ.")) {
+                service.generateContent(
+                    model = model,
+                    headers = mapOf(
+                        "x-goog-api-key" to apiKey,
+                        "Authorization" to "Bearer $apiKey"
+                    ),
+                    queries = emptyMap(),
+                    request = request
+                )
+            } else {
+                service.generateContent(
+                    model = model,
+                    headers = headerAuth,
+                    queries = mapOf("key" to apiKey),
+                    request = request
+                )
+            }
+        }
     }
 }

@@ -1130,7 +1130,7 @@ when (selectedTab) {
                             OutlinedTextField(
                                 value = apiKeyInput,
                                 onValueChange = { apiKeyInput = it },
-                                placeholder = { Text("AIzaSy...") },
+                                placeholder = { Text("AQ.… o AIza…") },
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(10.dp),
                                 colors = OutlinedTextFieldDefaults.colors(

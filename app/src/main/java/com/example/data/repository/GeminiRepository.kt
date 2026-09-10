@@ -175,7 +175,7 @@ Keep it production-grade, modern Material 3, clean and reactive.
             var lastError: Exception? = null
             for (modelId in modelCandidates) {
                 try {
-                    response = GeminiApiClient.service.generateContent(
+                    response = GeminiApiClient.generateContent(
                         model = modelId,
                         apiKey = apiKey,
                         request = request
@@ -200,7 +200,9 @@ Keep it production-grade, modern Material 3, clean and reactive.
             if (response == null) {
                 val hint = when {
                     apiKey.startsWith("AQ.") ->
-                        " La clave empieza por AQ. — asegúrate de que sea una API key de Google AI Studio (suele empezar por AIza…)."
+                        " La clave AQ. es el formato actual de Google AI Studio. Se envía como header x-goog-api-key. Si sigue fallando, crea una key nueva en aistudio.google.com/apikey y revoca la anterior."
+                    apiKey.startsWith("AIza") ->
+                        " Key AIza (formato antiguo). Debe estar restringida a Generative Language API."
                     else -> ""
                 }
                 return@withContext Result.failure(
