@@ -101,6 +101,8 @@ class StudioViewModel(
 
     init {
         loadLocalSettings()
+        initWelcomeMessage()
+        observeFirebaseAuth()
     }
 
     private fun loadLocalSettings() {
@@ -122,12 +124,6 @@ class StudioViewModel(
                 selectedLlmProvider = provider.ifBlank { st.selectedLlmProvider }
             )
         }
-    }
-
-
-    init {
-        initWelcomeMessage()
-        observeFirebaseAuth()
     }
 
     private fun observeFirebaseAuth() {

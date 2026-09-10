@@ -113,30 +113,28 @@ fun SettingsDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Inner Tabs
-                Scrollable
-            // Global settings feedback (API key save, Firestore, etc.)
-            val globalFeedback = uiState.settingsFeedbackMessage
-            if (!globalFeedback.isNullOrBlank()) {
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = GeminiGreen.copy(alpha = 0.12f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, GeminiGreen.copy(alpha = 0.45f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp)
-                ) {
-                    Text(
-                        text = globalFeedback,
-                        modifier = Modifier.padding(12.dp),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = GeminiGreen
-                    )
+                val globalFeedback = uiState.settingsFeedbackMessage
+                if (!globalFeedback.isNullOrBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = GeminiGreen.copy(alpha = 0.12f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, GeminiGreen.copy(alpha = 0.45f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                    ) {
+                        Text(
+                            text = globalFeedback,
+                            modifier = Modifier.padding(12.dp),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GeminiGreen
+                        )
+                    }
                 }
-            }
 
-            TabRow(
+                // Inner Tabs
+                ScrollableTabRow(
                     selectedTabIndex = selectedTab,
                     containerColor = StudioLightSurfaceVariant,
                     contentColor = GeminiBlue,
@@ -229,7 +227,7 @@ fun SettingsDialog(
                     }
                 }
 
-when (selectedTab) {
+                when (selectedTab) {
                     0 -> {
                         // Firebase & Firestore Sync Section
                         LazyColumn(
@@ -1140,13 +1138,14 @@ when (selectedTab) {
                                     unfocusedTextColor = StudioLightTextPrimary
                                 )
                             )
-                            if (uiState.settingsFeedbackMessage != null &&
-                                (uiState.settingsFeedbackMessage.contains("Clave") ||
-                                    uiState.settingsFeedbackMessage.contains("API key") ||
-                                    uiState.settingsFeedbackMessage.contains("guardada"))
+                            val keyFeedback = uiState.settingsFeedbackMessage
+                            if (keyFeedback != null &&
+                                (keyFeedback.contains("Clave") ||
+                                    keyFeedback.contains("API key") ||
+                                    keyFeedback.contains("guardada"))
                             ) {
                                 Text(
-                                    text = uiState.settingsFeedbackMessage,
+                                    text = keyFeedback,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = GeminiGreen
