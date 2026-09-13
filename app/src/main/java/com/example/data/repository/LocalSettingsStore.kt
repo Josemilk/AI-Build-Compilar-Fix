@@ -12,9 +12,12 @@ object LocalSettingsStore {
     private const val KEY_OPENAI = "openai_api_key"
     private const val KEY_ANTHROPIC = "anthropic_api_key"
     private const val KEY_DEEPSEEK = "deepseek_api_key"
+    private const val KEY_GROQ = "groq_api_key"
     private const val KEY_CUSTOM_ENDPOINT = "custom_llm_endpoint"
     private const val KEY_MODEL = "selected_model_id"
     private const val KEY_PROVIDER = "selected_llm_provider"
+    private const val KEY_GITHUB_TOKEN = "github_access_token"
+    private const val KEY_GITHUB_USER = "github_username"
 
     @Volatile
     private var prefs: SharedPreferences? = null
@@ -47,6 +50,11 @@ object LocalSettingsStore {
         p()?.edit()?.putString(KEY_DEEPSEEK, value)?.apply()
     }
 
+    fun getGroqKey(): String = p()?.getString(KEY_GROQ, "") ?: ""
+    fun setGroqKey(value: String) {
+        p()?.edit()?.putString(KEY_GROQ, value)?.apply()
+    }
+
     fun getCustomEndpoint(): String = p()?.getString(KEY_CUSTOM_ENDPOINT, "") ?: ""
     fun setCustomEndpoint(value: String) {
         p()?.edit()?.putString(KEY_CUSTOM_ENDPOINT, value)?.apply()
@@ -60,5 +68,15 @@ object LocalSettingsStore {
     fun getSelectedProvider(): String = p()?.getString(KEY_PROVIDER, "") ?: ""
     fun setSelectedProvider(value: String) {
         p()?.edit()?.putString(KEY_PROVIDER, value)?.apply()
+    }
+
+    fun getGitHubToken(): String = p()?.getString(KEY_GITHUB_TOKEN, "") ?: ""
+    fun setGitHubToken(value: String) {
+        p()?.edit()?.putString(KEY_GITHUB_TOKEN, value)?.apply()
+    }
+
+    fun getGitHubUsername(): String = p()?.getString(KEY_GITHUB_USER, "") ?: ""
+    fun setGitHubUsername(value: String) {
+        p()?.edit()?.putString(KEY_GITHUB_USER, value)?.apply()
     }
 }

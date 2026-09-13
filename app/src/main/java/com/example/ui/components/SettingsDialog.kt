@@ -35,7 +35,7 @@ fun SettingsDialog(
     onSelectLlmProvider: (String) -> Unit = {},
     onSelectMinSdk: (Int) -> Unit,
     onSaveApiKey: (String) -> Unit,
-    onSaveExternalApiKeys: (String, String, String, String) -> Unit = { _, _, _, _ -> },
+    onSaveExternalApiKeys: (String, String, String, String, String) -> Unit = { _, _, _, _, _ -> },
     onSignInFirebase: (String, String) -> Unit = { _, _ -> },
     onSignUpFirebase: (String, String, String) -> Unit = { _, _, _ -> },
     onSignOutFirebase: () -> Unit = {},
@@ -52,11 +52,13 @@ fun SettingsDialog(
     var openaiKeyInput by remember { mutableStateOf(uiState.openaiApiKey) }
     var anthropicKeyInput by remember { mutableStateOf(uiState.anthropicApiKey) }
     var deepseekKeyInput by remember { mutableStateOf(uiState.deepseekApiKey) }
+    var groqKeyInput by remember { mutableStateOf(uiState.groqApiKey) }
     var customEndpointInput by remember { mutableStateOf(uiState.customLlmEndpoint) }
     LaunchedEffect(uiState.customApiKey) { apiKeyInput = uiState.customApiKey }
     LaunchedEffect(uiState.openaiApiKey) { openaiKeyInput = uiState.openaiApiKey }
     LaunchedEffect(uiState.anthropicApiKey) { anthropicKeyInput = uiState.anthropicApiKey }
     LaunchedEffect(uiState.deepseekApiKey) { deepseekKeyInput = uiState.deepseekApiKey }
+    LaunchedEffect(uiState.groqApiKey) { groqKeyInput = uiState.groqApiKey }
     LaunchedEffect(uiState.customLlmEndpoint) { customEndpointInput = uiState.customLlmEndpoint }
 
     // API Manager Form State
@@ -621,6 +623,7 @@ fun SettingsDialog(
 
                             val providers = listOf(
                                 Triple("google_gemini", "Google Gemini (SDK Oficial)", "gemini-2.5-flash / 1.5-pro"),
+                                Triple("groq", "Groq (Llama / Mixtral)", "llama-3.3-70b / llama-3.1-8b"),
                                 Triple("openai", "OpenAI (ChatGPT API)", "GPT-4o / O3-Mini / GPT-4o-mini"),
                                 Triple("anthropic", "Anthropic (Claude API)", "Claude 3.5 Sonnet / Claude 3 Opus"),
                                 Triple("deepseek", "DeepSeek AI", "DeepSeek V3 / DeepSeek R1"),
@@ -728,6 +731,7 @@ fun SettingsDialog(
                                                 Pair("openai", "OpenAI (ChatGPT)"),
                                                 Pair("anthropic", "Anthropic (Claude)"),
                                                 Pair("deepseek", "DeepSeek AI"),
+                                                Pair("groq", "Groq (Llama)"),
                                                 Pair("groq", "Groq AI"),
                                                 Pair("custom", "Custom LLM Endpoint")
                                             )
@@ -1009,6 +1013,18 @@ fun SettingsDialog(
 
                             item {
                                 OutlinedTextField(
+                                    value = groqKeyInput,
+                                    onValueChange = { groqKeyInput = it },
+                                    label = { Text("Groq API Key (Llama)") },
+                                    placeholder = { Text("gsk_...") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                            }
+
+                            item {
+                                OutlinedTextField(
                                     value = deepseekKeyInput,
                                     onValueChange = { deepseekKeyInput = it },
                                     label = { Text("DeepSeek API Key") },
@@ -1034,7 +1050,7 @@ fun SettingsDialog(
                             item {
                                 Button(
                                     onClick = {
-                                        onSaveExternalApiKeys(openaiKeyInput, anthropicKeyInput, deepseekKeyInput, customEndpointInput)
+                                        onSaveExternalApiKeys(openaiKeyInput, anthropicKeyInput, deepseekKeyInput, customEndpointInput, groqKeyInput)
                                     },
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = GeminiPurple,

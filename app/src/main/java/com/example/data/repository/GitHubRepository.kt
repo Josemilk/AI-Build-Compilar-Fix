@@ -14,6 +14,7 @@ import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import retrofit2.HttpException
 
 data class GitHubAuthResult(
     val user: GitHubUser,
@@ -36,22 +37,42 @@ class GitHubRepository(
 
     private fun formatAuthHeader(token: String): String {
         val trimmed = token.trim()
-        return if (trimmed.startsWith("token ", ignoreCase = true) || trimmed.startsWith("Bearer ", ignoreCase = true)) {
-            trimmed
-        } else {
-            "Bearer $trimmed"
+        return when {
+            trimmed.startsWith("token ", ignoreCase = true) -> trimmed
+            trimmed.startsWith("Bearer ", ignoreCase = true) -> trimmed
+            // classic PAT (ghp_) and fine-grained (github_pat_) both accept Bearer
+            else -> "Bearer $trimmed"
         }
+    }
+
+    private fun httpDetail(e: Exception): String {
+        if (e is HttpException) {
+            val body = try { e.response()?.errorBody()?.string().orEmpty() } catch (_: Exception) { "" }
+            val code = e.code()
+            return when {
+                code == 401 -> "Token inválido o expirado (HTTP 401). Crea un PAT nuevo en GitHub → Settings → Developer settings → Personal access tokens. Scopes: repo, workflow, read:user."
+                code == 403 -> "Acceso denegado (HTTP 403). ${body.take(200)}. Revisa scopes del token (repo, workflow) o rate limit."
+                code == 404 -> "Recurso no encontrado (HTTP 404). ${body.take(200)}"
+                else -> "HTTP $code: ${body.take(300).ifBlank { e.message() }}"
+            }
+        }
+        return e.message ?: e.toString()
     }
 
     suspend fun authenticateAndFetchUser(token: String): Result<GitHubAuthResult> = withContext(Dispatchers.IO) {
         if (token.isBlank()) {
-            return@withContext Result.failure(IllegalArgumentException("GitHub token cannot be empty."))
+            return@withContext Result.failure(IllegalArgumentException("El token de GitHub está vacío. Pega un PAT (ghp_… o github_pat_…)."))
         }
 
         try {
             val authHeader = formatAuthHeader(token)
             val user = GitHubApiClient.service.getAuthenticatedUser(authHeader)
-            val repos = GitHubApiClient.service.listUserRepositories(authHeader)
+            val repos = try {
+                GitHubApiClient.service.listUserRepositories(authHeader)
+            } catch (re: Exception) {
+                Log.w(TAG, "Repos list failed, continuing with empty list: ${re.message}")
+                emptyList()
+            }
 
             // Save GitHub integration metadata to real Firebase Firestore if authenticated
             auth.currentUser?.let { fbUser ->
@@ -79,7 +100,7 @@ class GitHubRepository(
             Result.success(GitHubAuthResult(user = user, repositories = repos))
         } catch (e: Exception) {
             Log.e(TAG, "GitHub authentication failed", e)
-            Result.failure(e)
+            Result.failure(Exception(httpDetail(e), e))
         }
     }
 
@@ -90,7 +111,7 @@ class GitHubRepository(
             Result.success(repos)
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching repositories", e)
-            Result.failure(e)
+            Result.failure(Exception(httpDetail(e), e))
         }
     }
 

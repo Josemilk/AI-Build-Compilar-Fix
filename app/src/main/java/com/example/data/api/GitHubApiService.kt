@@ -2,6 +2,8 @@ package com.example.data.api
 
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -235,9 +237,19 @@ object GitHubApiClient {
 
     private val logging = HttpLoggingInterceptor().apply {
         level = HttpLoggingInterceptor.Level.BASIC
+        redactHeader("Authorization")
     }
 
     private val okHttpClient = OkHttpClient.Builder()
+        .addInterceptor { chain ->
+            // GitHub rejects requests without a User-Agent
+            val req = chain.request().newBuilder()
+                .header("User-Agent", "AI-Studio-Build-Android/1.0")
+                .header("X-GitHub-Api-Version", "2022-11-28")
+                .header("Accept", "application/vnd.github+json")
+                .build()
+            chain.proceed(req)
+        }
         .addInterceptor(logging)
         .connectTimeout(60, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
@@ -246,11 +258,15 @@ object GitHubApiClient {
         .followSslRedirects(true)
         .build()
 
+    private val moshi: Moshi = Moshi.Builder()
+        .add(KotlinJsonAdapterFactory())
+        .build()
+
     val service: GitHubApiService by lazy {
         Retrofit.Builder()
             .baseUrl(BASE_URL)
             .client(okHttpClient)
-            .addConverterFactory(MoshiConverterFactory.create())
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
             .create(GitHubApiService::class.java)
     }

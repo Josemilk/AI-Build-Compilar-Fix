@@ -53,6 +53,7 @@ data class UserStudioPreferences(
     val openaiApiKey: String = "",
     val anthropicApiKey: String = "",
     val deepseekApiKey: String = "",
+    val groqApiKey: String = "",
     val customLlmEndpoint: String = "",
     val githubUsername: String = "",
     val githubRepoName: String = "",

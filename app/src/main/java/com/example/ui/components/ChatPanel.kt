@@ -87,7 +87,8 @@ fun ChatPanel(
                     name = fileName,
                     sizeBytes = fileSize,
                     extension = ext,
-                    isImage = isImg
+                    isImage = isImg,
+                    uriString = selectedUri.toString()
                 )
             )
         }
@@ -152,18 +153,6 @@ fun ChatPanel(
             }
         }
         HorizontalDivider(color = StudioLightBorder.copy(alpha = 0.6f))
-
-        // Componente de interfaz de estado sobre la interfaz de chat en tiempo real
-        AnimatedVisibility(
-            visible = uiState.isAgentGenerating || uiState.agentProcessingState.isActive,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
-        ) {
-            GeminiLiveProcessingBar(
-                processingState = uiState.agentProcessingState,
-                activeModelName = uiState.activeModel.name
-            )
-        }
 
         // Chat messages list
         LazyColumn(

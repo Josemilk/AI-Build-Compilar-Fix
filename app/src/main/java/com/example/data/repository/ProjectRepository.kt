@@ -66,6 +66,36 @@ object ProjectRepository {
             currentUsage = 0,
             contextWindow = "1M tokens",
             speed = "0.3s avg"
+        ),
+        AiModelInfo(
+            id = "qwen/qwen3.8-27b",
+            name = "Qwen3.8 27B (Groq)",
+            alias = "Groq fast coding model",
+            description = "Qwen on Groq — strong coding. Requires Groq API key (gsk_...).",
+            maxDailyQuota = 5000,
+            currentUsage = 0,
+            contextWindow = "128K tokens",
+            speed = "0.2s avg"
+        ),
+        AiModelInfo(
+            id = "openai/gpt-oss-20b",
+            name = "GPT-OSS 20B (Groq)",
+            alias = "Open model on Groq",
+            description = "GPT-OSS 20B via Groq. Requires Groq API key (gsk_...).",
+            maxDailyQuota = 5000,
+            currentUsage = 0,
+            contextWindow = "128K tokens",
+            speed = "0.2s avg"
+        ),
+        AiModelInfo(
+            id = "openai/gpt-oss-120b",
+            name = "GPT-OSS 120B (Groq)",
+            alias = "Large open model on Groq",
+            description = "GPT-OSS 120B via Groq for heavier reasoning. Requires Groq API key (gsk_...).",
+            maxDailyQuota = 2000,
+            currentUsage = 0,
+            contextWindow = "128K tokens",
+            speed = "0.4s avg"
         )
     )
 

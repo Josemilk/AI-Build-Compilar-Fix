@@ -156,6 +156,7 @@ class FirebaseStudioRepository(
                 "openaiApiKey" to preferences.openaiApiKey,
                 "anthropicApiKey" to preferences.anthropicApiKey,
                 "deepseekApiKey" to preferences.deepseekApiKey,
+                "groqApiKey" to preferences.groqApiKey,
                 "customLlmEndpoint" to preferences.customLlmEndpoint,
                 "githubUsername" to preferences.githubUsername,
                 "githubRepoName" to preferences.githubRepoName,
@@ -199,6 +200,7 @@ class FirebaseStudioRepository(
                 val openaiKey = snapshot.getString("openaiApiKey") ?: ""
                 val anthropicKey = snapshot.getString("anthropicApiKey") ?: ""
                 val deepseekKey = snapshot.getString("deepseekApiKey") ?: ""
+                val groqKey = snapshot.getString("groqApiKey") ?: ""
                 val customEndpoint = snapshot.getString("customLlmEndpoint") ?: ""
                 val ghUser = snapshot.getString("githubUsername") ?: ""
                 val ghRepo = snapshot.getString("githubRepoName") ?: ""
@@ -214,6 +216,7 @@ class FirebaseStudioRepository(
                         openaiApiKey = openaiKey,
                         anthropicApiKey = anthropicKey,
                         deepseekApiKey = deepseekKey,
+                        groqApiKey = groqKey,
                         customLlmEndpoint = customEndpoint,
                         githubUsername = ghUser,
                         githubRepoName = ghRepo,

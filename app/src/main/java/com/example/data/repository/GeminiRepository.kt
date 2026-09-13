@@ -33,6 +33,7 @@ class GeminiRepository {
         openaiKey: String? = null,
         anthropicKey: String? = null,
         deepseekKey: String? = null,
+        groqKey: String? = null,
         customEndpoint: String? = null,
         attachedFilesSummary: String = ""
     ): Result<AgentExecutionResult> = withContext(Dispatchers.IO) {
@@ -58,6 +59,7 @@ Keep it production-grade, modern Material 3, clean and reactive.
                 "openai" -> openaiKey
                 "anthropic" -> anthropicKey
                 "deepseek" -> deepseekKey
+                "groq" -> groqKey
                 else -> customApiKey
             }
             Log.d("GeminiRepository", "Routing prompt dynamically to External LLM Provider: $provider (model: $activeModelId)")
@@ -72,15 +74,17 @@ Keep it production-grade, modern Material 3, clean and reactive.
                 var providerTag = ""
 
                 when (provider) {
-                    "openai", "deepseek", "custom" -> {
+                    "openai", "deepseek", "groq", "custom" -> {
                         val baseUrl = when (provider) {
                             "deepseek" -> "https://api.deepseek.com/"
+                            "groq" -> "https://api.groq.com/openai/"
                             "custom" -> (customEndpoint?.takeIf { it.isNotBlank() } ?: "https://api.openai.com/")
                             else -> "https://api.openai.com/"
                         }
                         providerTag = when (provider) {
                             "openai" -> "OpenAI API"
                             "deepseek" -> "DeepSeek API"
+                            "groq" -> "Groq (Llama)"
                             else -> "Custom LLM ($baseUrl)"
                         }
                         val openAiReq = com.example.data.api.OpenAiRequest(
@@ -95,7 +99,8 @@ Keep it production-grade, modern Material 3, clean and reactive.
                             authorization = "Bearer $targetKey",
                             request = openAiReq
                         )
-                        rawText = response.choices?.firstOrNull()?.message?.content ?: "Success"
+                        rawText = response.choices?.firstOrNull()?.message?.content?.takeIf { it.isNotBlank() }
+                            ?: "(El modelo respondió vacío. Prueba otro modelo Groq, p.ej. qwen/qwen3.8-27b.)"
                         tokens = response.usage?.totalTokens ?: 350
                     }
                     "anthropic" -> {

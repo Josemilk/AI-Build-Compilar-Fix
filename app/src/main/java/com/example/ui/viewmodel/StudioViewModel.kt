@@ -39,6 +39,7 @@ data class StudioUiState(
     val openaiApiKey: String = "",
     val anthropicApiKey: String = "",
     val deepseekApiKey: String = "",
+    val groqApiKey: String = "",
     val customLlmEndpoint: String = "",
     val savedExternalApiKeys: List<ExternalLlmApiKey> = emptyList(),
     val attachedFiles: List<AttachedFile> = emptyList(),
@@ -110,6 +111,7 @@ class StudioViewModel(
         val openai = LocalSettingsStore.getOpenAiKey()
         val anthropic = LocalSettingsStore.getAnthropicKey()
         val deepseek = LocalSettingsStore.getDeepseekKey()
+        val groq = LocalSettingsStore.getGroqKey()
         val endpoint = LocalSettingsStore.getCustomEndpoint()
         val modelId = LocalSettingsStore.getSelectedModelId()
         val provider = LocalSettingsStore.getSelectedProvider()
@@ -119,10 +121,47 @@ class StudioViewModel(
                 openaiApiKey = openai.ifBlank { st.openaiApiKey },
                 anthropicApiKey = anthropic.ifBlank { st.anthropicApiKey },
                 deepseekApiKey = deepseek.ifBlank { st.deepseekApiKey },
+                groqApiKey = groq.ifBlank { st.groqApiKey },
                 customLlmEndpoint = endpoint.ifBlank { st.customLlmEndpoint },
                 selectedModelId = modelId.ifBlank { st.selectedModelId },
-                selectedLlmProvider = provider.ifBlank { st.selectedLlmProvider }
+                selectedLlmProvider = provider.ifBlank { st.selectedLlmProvider },
+                githubState = st.githubState.copy(
+                    token = LocalSettingsStore.getGitHubToken().ifBlank { st.githubState.token },
+                    username = LocalSettingsStore.getGitHubUsername().ifBlank { st.githubState.username },
+                    isConnected = LocalSettingsStore.getGitHubToken().isNotBlank()
+                )
             )
+        }
+        // Re-validate saved GitHub token in background (real API call)
+        val savedGh = LocalSettingsStore.getGitHubToken()
+        if (savedGh.isNotBlank()) {
+            viewModelScope.launch {
+                val result = gitHubRepository.authenticateAndFetchUser(savedGh)
+                result.onSuccess { auth ->
+                    _uiState.update { state ->
+                        state.copy(
+                            githubState = state.githubState.copy(
+                                isConnected = true,
+                                token = savedGh,
+                                username = auth.user.login,
+                                userAvatarUrl = auth.user.avatarUrl,
+                                repositories = auth.repositories,
+                                successMessage = "GitHub reconectado: @${auth.user.login}"
+                            )
+                        )
+                    }
+                    LocalSettingsStore.setGitHubUsername(auth.user.login)
+                }.onFailure { err ->
+                    _uiState.update { state ->
+                        state.copy(
+                            githubState = state.githubState.copy(
+                                isConnected = false,
+                                errorMessage = "Token GitHub guardado inválido: ${err.message}"
+                            )
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -151,11 +190,25 @@ class StudioViewModel(
 
     fun selectModel(modelId: String) {
         LocalSettingsStore.setSelectedModelId(modelId)
+        val autoProvider = when {
+            modelId.startsWith("llama") || modelId.startsWith("mixtral") || modelId.startsWith("gemma")
+                || modelId.startsWith("qwen/") || modelId.startsWith("openai/gpt-oss")
+                || modelId.startsWith("meta-llama/") -> "groq"
+            modelId.startsWith("gpt-") || modelId.startsWith("o1") || modelId.startsWith("o3") -> "openai"
+            modelId.startsWith("claude") -> "anthropic"
+            modelId.startsWith("deepseek") -> "deepseek"
+            modelId.startsWith("gemini") -> "google_gemini"
+            else -> null
+        }
+        if (autoProvider != null) {
+            LocalSettingsStore.setSelectedProvider(autoProvider)
+        }
         _uiState.update { state ->
             state.copy(
                 selectedModelId = modelId,
+                selectedLlmProvider = autoProvider ?: state.selectedLlmProvider,
                 quotaWarningMessage = null,
-                settingsFeedbackMessage = "Modelo seleccionado: $modelId"
+                settingsFeedbackMessage = "Modelo: $modelId" + (autoProvider?.let { " ($it)" } ?: "")
             )
         }
         if (_uiState.value.firebaseUser != null) {
@@ -258,17 +311,34 @@ class StudioViewModel(
                 }
             }
 
+            // Include imported project sources (from ZIP) so the model can work on them
+            val projectContext = buildProjectFilesContext(_uiState.value.projectFiles)
+            val combinedContext = listOf(attachedSummary, projectContext)
+                .filter { it.isNotBlank() }
+                .joinToString("\n\n")
 
+            val providerForCall = run {
+                val mid = effectiveModel.id
+                when {
+                    mid.startsWith("qwen/") || mid.startsWith("openai/gpt-oss") || mid.startsWith("llama") || mid.startsWith("meta-llama/") -> "groq"
+                    mid.startsWith("gpt-") || mid.startsWith("o1") || mid.startsWith("o3") -> "openai"
+                    mid.startsWith("claude") -> "anthropic"
+                    mid.startsWith("deepseek") -> "deepseek"
+                    mid.startsWith("gemini") -> "google_gemini"
+                    else -> _uiState.value.selectedLlmProvider
+                }
+            }
             val result = geminiRepository.executeAgentPrompt(
                 prompt = promptText,
                 activeModelId = effectiveModel.id,
-                provider = _uiState.value.selectedLlmProvider,
+                provider = providerForCall,
                 customApiKey = _uiState.value.customApiKey,
                 openaiKey = _uiState.value.openaiApiKey,
                 anthropicKey = _uiState.value.anthropicApiKey,
                 deepseekKey = _uiState.value.deepseekApiKey,
+                groqKey = _uiState.value.groqApiKey,
                 customEndpoint = _uiState.value.customLlmEndpoint,
-                attachedFilesSummary = attachedSummary
+                attachedFilesSummary = combinedContext
             )
 
             result.onSuccess { agentResult ->
@@ -349,6 +419,22 @@ class StudioViewModel(
         }
     }
 
+
+    /** Builds a compact source tree summary for the LLM from imported project files. */
+    private fun buildProjectFilesContext(files: List<ProjectFile>, maxFiles: Int = 40, maxChars: Int = 60000): String {
+        if (files.isEmpty()) return ""
+        val sb = StringBuilder()
+        sb.append("PROJECT SOURCE FILES (").append(files.size).append(" total, showing up to ").append(maxFiles).append("):\n")
+        var used = 0
+        for (f in files.take(maxFiles)) {
+            val chunk = "### FILE: ${f.path}\n```\n${f.content.take(2500)}\n```\n\n"
+            if (used + chunk.length > maxChars) break
+            sb.append(chunk)
+            used += chunk.length
+        }
+        return sb.toString()
+    }
+
     private fun updateProjectFilesWithSnippets(snippets: List<CodeSnippet>, prompt: String = "") {
         _uiState.update { state ->
             val updatedFiles = state.projectFiles.toMutableList()
@@ -387,11 +473,22 @@ class StudioViewModel(
             appendCompileLog("📦 Importando ZIP del proyecto Android...")
             val result = ProjectZipImporter.importFromUri(context, uri)
             result.onSuccess { imported ->
+                val confirm = ChatMessage(
+                    id = UUID.randomUUID().toString(),
+                    isUser = false,
+                    text = "✅ Proyecto ZIP importado: ${imported.files.size} archivos de código listos" +
+                        (if (imported.skippedBinary > 0) " (${imported.skippedBinary} binarios omitidos)" else "") +
+                        (if (imported.skippedLarge > 0) ", ${imported.skippedLarge} demasiado grandes" else "") +
+                        ".\nLa IA ya puede analizar y modificar estos archivos. Escribe lo que necesitas.",
+                    buildStatus = "ZIP importado",
+                    modelUsed = "local"
+                )
                 _uiState.update {
                     it.copy(
                         projectFiles = imported.files,
                         activeFileIndex = 0,
                         projectName = imported.rootHint ?: it.projectName,
+                        messages = it.messages + confirm,
                         emulatorConsoleLogs = (it.emulatorConsoleLogs +
                             "Importados ${imported.files.size} archivos" +
                             if (imported.skippedBinary > 0) " (omitidos ${imported.skippedBinary} binarios)" else ""
@@ -400,6 +497,14 @@ class StudioViewModel(
                 }
                 appendCompileLog("✅ ZIP importado: ${imported.files.size} archivos de código listos.")
             }.onFailure { err ->
+                val errMsg = ChatMessage(
+                    id = UUID.randomUUID().toString(),
+                    isUser = false,
+                    text = "❌ Error al importar ZIP: ${err.message}",
+                    buildStatus = "Error",
+                    modelUsed = "local"
+                )
+                _uiState.update { it.copy(messages = it.messages + errMsg) }
                 appendCompileLog("❌ Error al importar ZIP: ${err.message}")
             }
         }
@@ -508,6 +613,7 @@ class StudioViewModel(
                 openaiApiKey = _uiState.value.openaiApiKey,
                 anthropicApiKey = _uiState.value.anthropicApiKey,
                 deepseekApiKey = _uiState.value.deepseekApiKey,
+                groqApiKey = _uiState.value.groqApiKey,
                 customLlmEndpoint = _uiState.value.customLlmEndpoint,
                 githubUsername = _uiState.value.githubState.username,
                 githubRepoName = _uiState.value.githubState.repoName,
@@ -547,6 +653,7 @@ class StudioViewModel(
                         openaiApiKey = prefs.openaiApiKey,
                         anthropicApiKey = prefs.anthropicApiKey,
                         deepseekApiKey = prefs.deepseekApiKey,
+                        groqApiKey = prefs.groqApiKey.ifBlank { it.groqApiKey },
                         customLlmEndpoint = prefs.customLlmEndpoint,
                         githubState = it.githubState.copy(
                             username = prefs.githubUsername,
@@ -619,27 +726,51 @@ class StudioViewModel(
     }
 
     fun selectLlmProvider(provider: String) {
-        _uiState.update { it.copy(selectedLlmProvider = provider) }
-        syncPreferencesToFirestore()
+        LocalSettingsStore.setSelectedProvider(provider)
+        val modelOverride = when (provider) {
+            "groq" -> "qwen/qwen3.8-27b"
+            "openai" -> "gpt-4o-mini"
+            "anthropic" -> "claude-3-5-sonnet-20241022"
+            "deepseek" -> "deepseek-chat"
+            else -> null
+        }
+        _uiState.update {
+            it.copy(
+                selectedLlmProvider = provider,
+                selectedModelId = modelOverride ?: it.selectedModelId,
+                settingsFeedbackMessage = "Proveedor activo: $provider"
+            )
+        }
+        if (modelOverride != null) {
+            LocalSettingsStore.setSelectedModelId(modelOverride)
+        }
+        if (_uiState.value.firebaseUser != null) {
+            syncPreferencesToFirestore()
+        }
     }
 
     fun saveExternalApiKeys(
         openaiKey: String,
         anthropicKey: String,
         deepseekKey: String,
-        customEndpoint: String
+        customEndpoint: String,
+        groqKey: String = ""
     ) {
         LocalSettingsStore.setOpenAiKey(openaiKey.trim())
         LocalSettingsStore.setAnthropicKey(anthropicKey.trim())
         LocalSettingsStore.setDeepseekKey(deepseekKey.trim())
         LocalSettingsStore.setCustomEndpoint(customEndpoint.trim())
+        if (groqKey.isNotBlank()) {
+            LocalSettingsStore.setGroqKey(groqKey.trim())
+        }
         _uiState.update {
             it.copy(
                 openaiApiKey = openaiKey.trim(),
                 anthropicApiKey = anthropicKey.trim(),
                 deepseekApiKey = deepseekKey.trim(),
                 customLlmEndpoint = customEndpoint.trim(),
-                settingsFeedbackMessage = "✅ Claves externas guardadas localmente."
+                groqApiKey = groqKey.trim().ifBlank { it.groqApiKey },
+                settingsFeedbackMessage = "✅ Claves externas guardadas. Se usarán en la próxima llamada al modelo."
             )
         }
         if (_uiState.value.firebaseUser != null) {
@@ -663,7 +794,8 @@ class StudioViewModel(
      * Adds a file to the attachment list and, if it has a real content URI,
      * starts a real Firebase Storage upload with progress updates.
      */
-    fun attachFile(file: AttachedFile) {
+    fun attachFile(file: AttachedFile, context: android.content.Context? = null) {
+        val isZip = file.extension.equals("zip", ignoreCase = true)
         val initial = file.copy(
             uploadStatus = if (file.uriString != null) UploadStatus.UPLOADING else UploadStatus.PENDING,
             uploadProgress = 0f,
@@ -675,9 +807,29 @@ class StudioViewModel(
         val uriString = file.uriString
         if (uriString.isNullOrBlank()) return
 
+        val uri = android.net.Uri.parse(uriString)
+
+        // ZIP: always import sources locally so the AI can read the project
+        if (isZip && context != null) {
+            importProjectZip(context, uri)
+            _uiState.update { state ->
+                state.copy(
+                    attachedFiles = state.attachedFiles.map { f ->
+                        if (f.id == file.id) {
+                            f.copy(
+                                uploadStatus = UploadStatus.SUCCESS,
+                                uploadProgress = 1f,
+                                uploadError = null
+                            )
+                        } else f
+                    }
+                )
+            }
+            // Still try Storage upload below for a cloud copy; failures are non-fatal for ZIP
+        }
+
         viewModelScope.launch {
             try {
-                val uri = android.net.Uri.parse(uriString)
                 storageRepository.uploadFileWithProgress(uri, file.extension).collect { event ->
                     when (event) {
                         is UploadEvent.Progress -> {
@@ -955,20 +1107,24 @@ class StudioViewModel(
             _uiState.update { it.copy(githubState = it.githubState.copy(isLoading = true, errorMessage = null, successMessage = null)) }
             val result = gitHubRepository.authenticateAndFetchUser(token)
             result.onSuccess { authResult ->
+                val trimmed = token.trim()
+                LocalSettingsStore.setGitHubToken(trimmed)
+                LocalSettingsStore.setGitHubUsername(authResult.user.login)
                 val currentUser = firebaseRepository.currentUser
                 if (currentUser != null) {
-                    firebaseRepository.saveGitHubOAuthToken(currentUser.uid, token, authResult.user.login)
+                    firebaseRepository.saveGitHubOAuthToken(currentUser.uid, trimmed, authResult.user.login)
                 }
                 _uiState.update { state ->
                     state.copy(
                         githubState = state.githubState.copy(
                             isConnected = true,
-                            token = token,
+                            token = trimmed,
                             username = authResult.user.login,
                             userAvatarUrl = authResult.user.avatarUrl,
                             repositories = authResult.repositories,
                             isLoading = false,
-                            successMessage = "¡Conectado exitosamente vía OAuth2 con @${authResult.user.login}! (${authResult.repositories.size} repositorios expuestos en Firestore)"
+                            errorMessage = null,
+                            successMessage = "✅ Conectado a GitHub como @${authResult.user.login} (${authResult.repositories.size} repos). Llamada real a api.github.com/user."
                         )
                     )
                 }
@@ -976,8 +1132,9 @@ class StudioViewModel(
                 _uiState.update { state ->
                     state.copy(
                         githubState = state.githubState.copy(
+                            isConnected = false,
                             isLoading = false,
-                            errorMessage = "Error autenticando con GitHub: ${err.localizedMessage ?: err.message}"
+                            errorMessage = err.message ?: err.localizedMessage ?: "Error autenticando con GitHub"
                         )
                     )
                 }
@@ -1798,6 +1955,7 @@ class StudioViewModel(
                 openaiKey = state.openaiApiKey,
                 anthropicKey = state.anthropicApiKey,
                 deepseekKey = state.deepseekApiKey,
+                groqKey = state.groqApiKey,
                 customEndpoint = state.customLlmEndpoint
             )
 

@@ -50,10 +50,6 @@ fun StudioMainScreen(
 
             val ext = fileName.substringAfterLast('.', "bin").lowercase()
             val isImg = ext in listOf("png", "jpg", "jpeg", "webp", "gif", "svg")
-            // Project ZIP → load sources into the workspace for real compile/repair
-            if (ext == "zip") {
-                viewModel.importProjectZip(context, selectedUri)
-            }
             viewModel.attachFile(
                 AttachedFile(
                     id = UUID.randomUUID().toString(),
@@ -107,7 +103,7 @@ fun StudioMainScreen(
                             onRemoveAttachment = { viewModel.removeAttachedFile(it) },
                             onQuickPromptSelected = { viewModel.sendPrompt(it) },
                             onViewInEmulator = { viewModel.selectTab(StudioTab.PREVIEW) },
-                            onAttachFile = { viewModel.attachFile(it) },
+                            onAttachFile = { viewModel.attachFile(it, context) },
                             onClearChat = { viewModel.clearChat() },
                             modifier = Modifier.weight(0.48f)
                         )
@@ -141,7 +137,7 @@ fun StudioMainScreen(
                                     onRemoveAttachment = { viewModel.removeAttachedFile(it) },
                                     onQuickPromptSelected = { viewModel.sendPrompt(it) },
                                     onViewInEmulator = { viewModel.selectTab(StudioTab.PREVIEW) },
-                                    onAttachFile = { viewModel.attachFile(it) },
+                                    onAttachFile = { viewModel.attachFile(it, context) },
                                     onClearChat = { viewModel.clearChat() }
                                 )
                             }
@@ -209,7 +205,7 @@ fun StudioMainScreen(
             onSelectLlmProvider = { viewModel.selectLlmProvider(it) },
             onSelectMinSdk = { viewModel.setAndroidMinSdk(it) },
             onSaveApiKey = { viewModel.setCustomApiKey(it) },
-            onSaveExternalApiKeys = { openAi, ant, ds, end -> viewModel.saveExternalApiKeys(openAi, ant, ds, end) },
+            onSaveExternalApiKeys = { o, a, d, e, g -> viewModel.saveExternalApiKeys(o, a, d, e, g) },
             onSignInFirebase = { email, pass -> viewModel.signInWithFirebase(email, pass) },
             onSignUpFirebase = { email, pass, name -> viewModel.signUpWithFirebase(email, pass, name) },
             onSignOutFirebase = { viewModel.signOutFirebase() },
@@ -266,7 +262,7 @@ fun StudioMainScreen(
     if (uiState.isAttachmentPickerOpen) {
         AttachmentPickerSheet(
             onDismiss = { viewModel.setAttachmentPickerOpen(false) },
-            onFileSelected = { viewModel.attachFile(it) },
+            onFileSelected = { viewModel.attachFile(it, context) },
             onLaunchSystemFilePicker = {
                 globalFilePickerLauncher.launch("*/*")
             }

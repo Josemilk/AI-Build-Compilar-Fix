@@ -2,6 +2,8 @@ package com.example.data.api
 
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.HttpException
@@ -10,8 +12,8 @@ import retrofit2.converter.moshi.MoshiConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.HeaderMap
 import retrofit2.http.POST
-import retrofit2.http.Path
 import retrofit2.http.QueryMap
+import retrofit2.http.Url
 import java.util.concurrent.TimeUnit
 
 @JsonClass(generateAdapter = true)
@@ -61,9 +63,9 @@ data class GeminiUsageMetadata(
 )
 
 interface GeminiApiService {
-    @POST("v1beta/models/{model}:generateContent")
+    @POST
     suspend fun generateContent(
-        @Path("model") model: String,
+        @Url url: String,
         @HeaderMap headers: Map<String, String>,
         @QueryMap queries: Map<String, String>,
         @Body request: GeminiApiRequest
@@ -86,11 +88,15 @@ object GeminiApiClient {
         .writeTimeout(60, TimeUnit.SECONDS)
         .build()
 
+    private val moshi: Moshi = Moshi.Builder()
+        .add(KotlinJsonAdapterFactory())
+        .build()
+
     val service: GeminiApiService by lazy {
         Retrofit.Builder()
             .baseUrl(BASE_URL)
             .client(okHttpClient)
-            .addConverterFactory(MoshiConverterFactory.create())
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
             .create(GeminiApiService::class.java)
     }
@@ -104,34 +110,38 @@ object GeminiApiClient {
         apiKey: String,
         request: GeminiApiRequest
     ): GeminiApiResponse {
-        val headerAuth = mapOf("x-goog-api-key" to apiKey)
-        return try {
-            service.generateContent(model, headerAuth, emptyMap(), request)
-        } catch (first: HttpException) {
-            val body = try { first.response()?.errorBody()?.string().orEmpty() } catch (_: Exception) { "" }
-            val authFailed = first.code() == 401 || first.code() == 403 ||
-                body.contains("ACCESS_TOKEN_TYPE_UNSUPPORTED", ignoreCase = true) ||
-                body.contains("UNAUTHENTICATED", ignoreCase = true) ||
-                body.contains("API key not valid", ignoreCase = true)
-            if (!authFailed) throw first
+        val strategies = buildList {
+            // Official: x-goog-api-key header (works for AQ. auth keys and AIza)
+            add(mapOf("x-goog-api-key" to apiKey) to emptyMap<String, String>())
             if (apiKey.startsWith("AQ.")) {
-                service.generateContent(
-                    model = model,
-                    headers = mapOf(
+                add(
+                    mapOf(
                         "x-goog-api-key" to apiKey,
                         "Authorization" to "Bearer $apiKey"
-                    ),
-                    queries = emptyMap(),
-                    request = request
+                    ) to emptyMap()
                 )
             } else {
-                service.generateContent(
-                    model = model,
-                    headers = headerAuth,
-                    queries = mapOf("key" to apiKey),
-                    request = request
-                )
+                // Legacy AIza keys often used ?key=
+                add(mapOf("x-goog-api-key" to apiKey) to mapOf("key" to apiKey))
+                add(emptyMap<String, String>() to mapOf("key" to apiKey))
             }
         }
+
+        var lastError: Exception? = null
+        val url = BASE_URL + "v1beta/models/$model:generateContent"
+        for ((headers, queries) in strategies) {
+            try {
+                return service.generateContent(url, headers, queries, request)
+            } catch (e: HttpException) {
+                val body = try { e.response()?.errorBody()?.string().orEmpty() } catch (_: Exception) { "" }
+                lastError = Exception("HTTP ${e.code()}: ${body.take(400)}")
+                val retryable = e.code() in listOf(401, 403) ||
+                    body.contains("ACCESS_TOKEN_TYPE_UNSUPPORTED", ignoreCase = true) ||
+                    body.contains("UNAUTHENTICATED", ignoreCase = true) ||
+                    body.contains("API key not valid", ignoreCase = true)
+                if (!retryable) throw lastError!!
+            }
+        }
+        throw lastError ?: Exception("Gemini request failed")
     }
 }

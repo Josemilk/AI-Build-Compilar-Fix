@@ -250,6 +250,12 @@ fun GitHubSyncDialog(
                                         }
                                     }
                                 }
+                                Text(
+                                    "Crea el token en GitHub → Settings → Developer settings → Personal access tokens. Scopes: repo, workflow, read:user. Pega ghp_… o github_pat_… y pulsa Conectar (llamada real a api.github.com).",
+                                    fontSize = 10.sp,
+                                    color = StudioLightTextSecondary,
+                                    lineHeight = 13.sp
+                                )
 
                                 HorizontalDivider(color = StudioLightBorder.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 2.dp))
 

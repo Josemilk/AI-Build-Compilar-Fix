@@ -2,6 +2,8 @@ package com.example.data.api
 
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -71,10 +73,11 @@ object OpenAIApiClient {
      */
     fun createService(baseUrl: String): OpenAIApiService {
         val normalized = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
+        val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
         return Retrofit.Builder()
             .baseUrl(normalized)
             .client(okHttpClient)
-            .addConverterFactory(MoshiConverterFactory.create())
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
             .create(OpenAIApiService::class.java)
     }
