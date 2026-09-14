@@ -221,22 +221,11 @@ class StudioViewModel(
 
         val currentModel = _uiState.value.activeModel
 
-        // Check quota exhaustion & auto-switch if needed
+        // Soft quota warning only — never block real API calls when the user has a key
         var effectiveModel = currentModel
         if (currentModel.isQuotaExhausted) {
-            val fallbackModel = _uiState.value.models.firstOrNull { !it.isQuotaExhausted }
-            if (fallbackModel != null) {
-                effectiveModel = fallbackModel
-                _uiState.update {
-                    it.copy(
-                        selectedModelId = fallbackModel.id,
-                        quotaWarningMessage = "Daily quota for ${currentModel.name} reached! Auto-switched to ${fallbackModel.name}."
-                    )
-                }
-            } else {
-                _uiState.update {
-                    it.copy(quotaWarningMessage = "All model daily quotas exhausted for today! You can add your own Gemini API key in Settings.")
-                }
+            _uiState.update {
+                it.copy(quotaWarningMessage = "Aviso de cuota local para ${currentModel.name}. Si tienes API key, la llamada real se hace igual.")
             }
         }
 
@@ -328,6 +317,13 @@ class StudioViewModel(
                     else -> _uiState.value.selectedLlmProvider
                 }
             }
+            // Prior turns (exclude the message we just appended) so the model keeps context
+            val history = _uiState.value.messages
+                .dropLast(1)
+                .takeLast(12)
+                .map { msg ->
+                    (if (msg.isUser) "user" else "assistant") to msg.text.take(4000)
+                }
             val result = geminiRepository.executeAgentPrompt(
                 prompt = promptText,
                 activeModelId = effectiveModel.id,
@@ -338,7 +334,8 @@ class StudioViewModel(
                 deepseekKey = _uiState.value.deepseekApiKey,
                 groqKey = _uiState.value.groqApiKey,
                 customEndpoint = _uiState.value.customLlmEndpoint,
-                attachedFilesSummary = combinedContext
+                attachedFilesSummary = combinedContext,
+                conversationHistory = history
             )
 
             result.onSuccess { agentResult ->
@@ -364,7 +361,7 @@ class StudioViewModel(
                     thinkingText = agentResult.thinkingText,
                     toolActions = _uiState.value.agentProcessingState.stepHistory + agentResult.toolActions,
                     codeSnippets = agentResult.codeSnippets,
-                    buildStatus = if (agentResult.codeSnippets.isNotEmpty()) "Code snippets extracted and applied to project files" else "Response received",
+                    buildStatus = if (agentResult.codeSnippets.isNotEmpty()) "Código aplicado al proyecto" else null,
                     modelUsed = agentResult.modelUsed
                 )
 
@@ -809,8 +806,17 @@ class StudioViewModel(
 
         val uri = android.net.Uri.parse(uriString)
 
-        // ZIP: always import sources locally so the AI can read the project
+        // ZIP de proyecto: tomar permiso de lectura y descomprimir localmente
         if (isZip && context != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: SecurityException) {
+                // GetContent may not grant persistable; openInputStream still works while activity alive
+            } catch (_: Exception) {
+            }
             importProjectZip(context, uri)
             _uiState.update { state ->
                 state.copy(
@@ -825,7 +831,8 @@ class StudioViewModel(
                     }
                 )
             }
-            // Still try Storage upload below for a cloud copy; failures are non-fatal for ZIP
+            // Skip Firebase Storage for project ZIPs — local import is what matters
+            return
         }
 
         viewModelScope.launch {

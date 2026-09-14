@@ -35,21 +35,27 @@ class GeminiRepository {
         deepseekKey: String? = null,
         groqKey: String? = null,
         customEndpoint: String? = null,
-        attachedFilesSummary: String = ""
+        attachedFilesSummary: String = "",
+        conversationHistory: List<Pair<String, String>> = emptyList()
     ): Result<AgentExecutionResult> = withContext(Dispatchers.IO) {
         val systemPrompt = """
-You are the AI Studio Principal Architect & Android Engineer.
-Your goal is to understand the user's intent to build/modify Android apps in Kotlin and Jetpack Compose.
-Structure your answer clearly:
-1. Provide a concise explanation of what was built or changed.
-2. If code is generated, wrap it in markdown code blocks with the file name in a comment or header.
-Keep it production-grade, modern Material 3, clean and reactive.
+Eres un ingeniero Android real (Kotlin + Jetpack Compose) y compilador asistido.
+Responde SIEMPRE de forma natural y directa al mensaje del usuario, en el mismo idioma que use.
+- Si el usuario saluda o pregunta algo general, responde con naturalidad (no inventes código).
+- Si pide construir o modificar una app, explica y genera código útil.
+- Si hay archivos de proyecto en el contexto, úsalos para basar tu respuesta.
+- Cuando generes o edites archivos, usa bloques markdown con la ruta del archivo:
+```path/to/File.kt
+// contenido completo
+```
+- NUNCA uses frases genéricas de relleno del tipo "Generated Android implementation successfully".
+- No digas que eres un template ni que la respuesta está precargada.
         """.trimIndent()
 
         val userInstruction = buildString {
             append(prompt)
             if (attachedFilesSummary.isNotBlank()) {
-                append("\n\n[Attached Context Files]:\n")
+                append("\n\n[Contexto de proyecto / archivos]:\n")
                 append(attachedFilesSummary)
             }
         }
@@ -87,10 +93,14 @@ Keep it production-grade, modern Material 3, clean and reactive.
                             "groq" -> "Groq (Llama)"
                             else -> "Custom LLM ($baseUrl)"
                         }
+                        val historyMsgs = conversationHistory.map { (role, content) ->
+                            com.example.data.api.OpenAiMessage(role = role, content = content)
+                        }
                         val openAiReq = com.example.data.api.OpenAiRequest(
                             model = activeModelId,
                             messages = listOf(
-                                com.example.data.api.OpenAiMessage(role = "system", content = systemPrompt),
+                                com.example.data.api.OpenAiMessage(role = "system", content = systemPrompt)
+                            ) + historyMsgs + listOf(
                                 com.example.data.api.OpenAiMessage(role = "user", content = userInstruction)
                             )
                         )
@@ -105,10 +115,16 @@ Keep it production-grade, modern Material 3, clean and reactive.
                     }
                     "anthropic" -> {
                         providerTag = "Anthropic API"
+                        val antHistory = conversationHistory.map { (role, content) ->
+                            com.example.data.api.AnthropicMessage(
+                                role = if (role == "assistant") "assistant" else "user",
+                                content = content
+                            )
+                        }
                         val anthropicReq = com.example.data.api.AnthropicRequest(
                             model = activeModelId,
                             system = systemPrompt,
-                            messages = listOf(
+                            messages = antHistory + listOf(
                                 com.example.data.api.AnthropicMessage(role = "user", content = userInstruction)
                             )
                         )
@@ -129,15 +145,20 @@ Keep it production-grade, modern Material 3, clean and reactive.
                 val cleanReply = cleanResponseText(rawText)
 
                 // Only report real actions that actually happened (API call + parsing)
+                if (cleanReply.isBlank()) {
+                    return@withContext Result.failure(
+                        Exception("El proveedor $providerTag devolvió una respuesta vacía.")
+                    )
+                }
                 val tools = listOf(
-                    ToolAction("Called $providerTag", ToolStatus.COMPLETED),
-                    ToolAction("Parsed response and extracted code snippets", ToolStatus.COMPLETED)
+                    ToolAction("Llamada real a $providerTag", ToolStatus.COMPLETED),
+                    ToolAction("Respuesta parseada (${cleanReply.length} chars)", ToolStatus.COMPLETED)
                 )
 
                 return@withContext Result.success(
                     AgentExecutionResult(
                         replyText = cleanReply,
-                        thinkingText = thinkingText ?: "Response received from $providerTag.",
+                        thinkingText = thinkingText,
                         toolActions = tools,
                         codeSnippets = parsedCodeSnippets,
                         tokensUsed = tokens,
@@ -157,8 +178,14 @@ Keep it production-grade, modern Material 3, clean and reactive.
         }
 
         try {
+            val historyContents = conversationHistory.map { (role, content) ->
+                GeminiContent(
+                    role = if (role == "assistant") "model" else "user",
+                    parts = listOf(GeminiPart(text = content))
+                )
+            }
             val request = GeminiApiRequest(
-                contents = listOf(
+                contents = historyContents + listOf(
                     GeminiContent(
                         role = "user",
                         parts = listOf(GeminiPart(text = userInstruction))
@@ -169,8 +196,8 @@ Keep it production-grade, modern Material 3, clean and reactive.
                     parts = listOf(GeminiPart(text = systemPrompt))
                 ),
                 generationConfig = GeminiGenerationConfig(
-                    temperature = 0.7f,
-                    maxOutputTokens = 4096
+                    temperature = 0.8f,
+                    maxOutputTokens = 8192
                 )
             )
 
@@ -220,24 +247,32 @@ Keep it production-grade, modern Material 3, clean and reactive.
                 )
             }
 
-            val rawText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
-                ?: "Generated Android implementation successfully."
+            val candidate = response.candidates?.firstOrNull()
+            val rawText = candidate?.content?.parts?.mapNotNull { it.text }?.joinToString("")?.trim().orEmpty()
+            val blockReason = candidate?.finishReason
+            if (rawText.isBlank()) {
+                return@withContext Result.failure(
+                    Exception(
+                        "El modelo no devolvió texto (finishReason=$blockReason). " +
+                        "Revisa la API key, el modelo seleccionado o posibles filtros de seguridad."
+                    )
+                )
+            }
 
             val parsedCodeSnippets = extractCodeSnippets(rawText)
             val thinkingText = extractThinking(rawText)
             val cleanReply = cleanResponseText(rawText)
-            val tokens = response.usageMetadata?.totalTokenCount ?: 350
+            val tokens = response.usageMetadata?.totalTokenCount ?: 0
 
-            // Only report real actions that actually happened
             val tools = listOf(
-                ToolAction("Called Google Gemini API", ToolStatus.COMPLETED),
-                ToolAction("Parsed response and extracted code snippets", ToolStatus.COMPLETED)
+                ToolAction("Llamada real a Google Gemini ($usedModel)", ToolStatus.COMPLETED),
+                ToolAction("Respuesta parseada (${cleanReply.length} chars)", ToolStatus.COMPLETED)
             )
 
             Result.success(
                 AgentExecutionResult(
                     replyText = cleanReply,
-                    thinkingText = thinkingText ?: "Response received from Google Gemini.",
+                    thinkingText = thinkingText,
                     toolActions = tools,
                     codeSnippets = parsedCodeSnippets,
                     tokensUsed = tokens,

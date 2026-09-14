@@ -25,7 +25,7 @@ object ProjectZipImporter {
         "captures/", ".cxx/", "local.properties"
     )
 
-    private const val MAX_FILES = 200
+    private const val MAX_FILES = 400
     private const val MAX_FILE_BYTES = 512 * 1024 // 512 KB per text file
 
     data class ImportResult(
@@ -38,8 +38,11 @@ object ProjectZipImporter {
     suspend fun importFromUri(context: Context, uri: Uri): Result<ImportResult> = withContext(Dispatchers.IO) {
         try {
             val resolver = context.contentResolver
-            val input = resolver.openInputStream(uri)
-                ?: return@withContext Result.failure(Exception("No se pudo abrir el ZIP"))
+            val input = try {
+                resolver.openInputStream(uri)
+            } catch (e: Exception) {
+                return@withContext Result.failure(Exception("No se pudo abrir el ZIP: ${e.message}"))
+            } ?: return@withContext Result.failure(Exception("No se pudo abrir el ZIP (stream nulo). Prueba otro administrador de archivos."))
 
             val files = mutableListOf<ProjectFile>()
             var skippedBinary = 0

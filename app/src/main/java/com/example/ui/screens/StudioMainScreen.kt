@@ -32,9 +32,15 @@ fun StudioMainScreen(
 
     // Global file picker launcher for device attachment
     val globalFilePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri?.let { selectedUri ->
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    selectedUri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) { }
             var fileName = "dispositivo_archivo_${System.currentTimeMillis() % 1000}"
             var fileSize = 20000L
             try {
@@ -110,13 +116,12 @@ fun StudioMainScreen(
 
                         VerticalDivider(color = com.example.ui.theme.StudioLightBorder, thickness = 1.dp)
 
-                        // Right: Live Streaming Emulator
-                        EmulatorView(
+                        // Right: código del proyecto (constructor nativo)
+                        CodeEditorView(
                             uiState = uiState,
-                            onReload = { viewModel.triggerPreviewReload() },
-                            onDeviceSkinChange = { viewModel.setDeviceSkin(it) },
-                            onBoostMetric = { viewModel.boostDynamicMetric() },
-                            onAddDynamicItem = { viewModel.addDynamicItem() },
+                            onSelectFile = { viewModel.selectFile(it) },
+                            onUpdateFileContent = { idx, content -> viewModel.updateFileContent(idx, content) },
+                            onApplyAndRecompile = { viewModel.setExportDialogOpen(true) },
                             modifier = Modifier.weight(0.52f)
                         )
                     }
@@ -264,7 +269,7 @@ fun StudioMainScreen(
             onDismiss = { viewModel.setAttachmentPickerOpen(false) },
             onFileSelected = { viewModel.attachFile(it, context) },
             onLaunchSystemFilePicker = {
-                globalFilePickerLauncher.launch("*/*")
+                globalFilePickerLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream", "*/*"))
             }
         )
     }
